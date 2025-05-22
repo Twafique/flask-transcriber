@@ -1,6 +1,10 @@
+import os
+from flask import Flask, request, jsonify
+import openai
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from youtube_transcript_api.formatters import TextFormatter
 from urllib.parse import urlparse, parse_qs
+
+app = Flask(__name__)
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
@@ -14,18 +18,17 @@ def transcribe():
             return jsonify({"error": "Invalid YouTube URL"}), 400
         video_id = video_id[0]
 
-        # Fetch transcript
+        # Fetch transcript in Hindi or English
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi', 'en'])
 
-        # Combine into one string
+        # Combine transcript into one text block
         transcript_text = " ".join([t['text'] for t in transcript_list])
 
-        # (In future) call OpenAI here
-
+        # For now, we only return the transcript (OpenAI part comes next)
         return jsonify({
             "message": "Transcript fetched successfully",
             "video_url": video_url,
-            "transcript": transcript_text[:300] + "..."  # Trimmed for readability
+            "transcript": transcript_text[:300] + "..."  # Preview only
         })
 
     except TranscriptsDisabled:
@@ -34,3 +37,11 @@ def transcribe():
         return jsonify({"error": "No transcript found for this video."}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/healthz')
+def health_check():
+    return 'ok'
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
