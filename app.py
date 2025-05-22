@@ -1,50 +1,55 @@
 import os
+import re
 from flask import Flask, request, jsonify
-import openai
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from urllib.parse import urlparse, parse_qs
 
 app = Flask(__name__)
 
+def extract_video_id(url):
+    """
+    Extracts the YouTube video ID from a URL.
+    Returns video ID string or raises ValueError if invalid.
+    """
+    # Regex pattern to capture video ID from different YouTube URL formats
+    pattern = (
+        r'(?:https?://)?(?:www\.)?'
+        r'(?:youtube\.com/watch\?v=|youtu\.be/)'
+        r'([a-zA-Z0-9_-]{11})'
+    )
+    match = re.match(pattern, url)
+    if match:
+        return match.group(1)
+    raise ValueError("Invalid YouTube URL")
+
+@app.route('/healthz', methods=['GET'])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
-    data = request.get_json()
-    video_url = data.get('video_url')
-
     try:
-        # Extract video ID
-        video_id = parse_qs(urlparse(video_url).query).get("v")
-        if not video_id:
-            return jsonify({"error": "Invalid YouTube URL"}), 400
-        video_id = video_id[0]
+        data = request.get_json()
+        if not data or 'video_url' not in data:
+            return jsonify({"error": "Missing 'video_url' in request body"}), 400
 
-        # Fetch transcript in Hindi or English
-        try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi', 'en'])
-        except Exception:
-            # Try just English if Hindi+English fails
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        video_url = data['video_url']
+        video_id = extract_video_id(video_url)
 
-        # Combine transcript into one text block
-        transcript_text = " ".join([t['text'] for t in transcript_list])
+        # Here you can add your logic to process the video_id, call APIs, etc.
+        # For now, returning sample flashcards:
 
-        # For now, we only return the transcript (OpenAI part comes next)
         return jsonify({
-            "message": "Transcript fetched successfully",
+            "message": "Received URL",
             "video_url": video_url,
-            "transcript": transcript_text[:300] + "..."  # Preview only
+            "video_id": video_id,
+            "flashcards": [
+                {"q": "Sample question?", "a": "Sample answer."}
+            ]
         })
 
-    except TranscriptsDisabled:
-        return jsonify({"error": "Transcripts are disabled for this video."}), 403
-    except NoTranscriptFound:
-        return jsonify({"error": "No transcript found for this video."}), 404
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@app.route('/healthz')
-def health_check():
-    return 'ok'
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
