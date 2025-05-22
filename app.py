@@ -1,6 +1,8 @@
 import os
 import re
 from flask import Flask, request, jsonify
+from youtube_transcript_api import YouTubeTranscriptApi
+import openai
 
 app = Flask(__name__)
 
@@ -9,7 +11,6 @@ def extract_video_id(url):
     Extracts the YouTube video ID from a URL.
     Returns video ID string or raises ValueError if invalid.
     """
-    # Regex pattern to capture video ID from different YouTube URL formats
     pattern = (
         r'(?:https?://)?(?:www\.)?'
         r'(?:youtube\.com/watch\?v=|youtu\.be/)'
@@ -34,16 +35,38 @@ def transcribe():
         video_url = data['video_url']
         video_id = extract_video_id(video_url)
 
-        # Here you can add your logic to process the video_id, call APIs, etc.
-        # For now, returning sample flashcards:
+        # Fetch transcript using youtube_transcript_api
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        transcript_text = " ".join([entry['text'] for entry in transcript_list])
+
+        # Generate flashcards using OpenAI API
+        openai.api_key = os.getenv("OPENAI_API_KEY")  # Make sure this env var is set in Render
+        
+        prompt = (
+            f"Generate 3 simple question-answer flashcards from the following transcript:\n\n{transcript_text}\n\n"
+            "Format as a JSON list of objects with 'q' and 'a' keys."
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.7,
+        )
+        flashcards_text = response.choices[0].message.content
+
+        # Try to parse flashcards JSON from response
+        import json
+        try:
+            flashcards = json.loads(flashcards_text)
+        except Exception:
+            # fallback if parsing fails
+            flashcards = [{"q": "Sample question?", "a": "Sample answer."}]
 
         return jsonify({
-            "message": "Received URL",
+            "message": "Received URL and processed transcript",
             "video_url": video_url,
             "video_id": video_id,
-            "flashcards": [
-                {"q": "Sample question?", "a": "Sample answer."}
-            ]
+            "flashcards": flashcards
         })
 
     except ValueError as ve:
