@@ -1,75 +1,36 @@
-import os
-from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from googletrans import Translator
-import openai
-import re
-
-app = Flask(__name__)
-
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-
-def extract_video_id(url):
-    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
-    return match.group(1) if match else None
-
-def get_transcript(video_id):
-    try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi', 'en'])
-        return " ".join([entry['text'] for entry in transcript])
-    except (TranscriptsDisabled, NoTranscriptFound):
-        return None
-
-def translate_to_english(text):
-    translator = Translator()
-    translated = translator.translate(text, src='hi', dest='en')
-    return translated.text
-
-def generate_flashcards(text):
-    prompt = f"""Generate 5 flashcards from the following text. Each flashcard should have a question and an answer:
-    
-{text}
-
-Format:
-[
-  {{ "q": "...", "a": "..." }},
-  ...
-]
-"""
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.7
-    )
-    return eval(response['choices'][0]['message']['content'])
+from youtube_transcript_api.formatters import TextFormatter
+from urllib.parse import urlparse, parse_qs
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
     data = request.get_json()
     video_url = data.get('video_url')
-    video_id = extract_video_id(video_url)
-    if not video_id:
-        return jsonify({"error": "Invalid YouTube URL"}), 400
 
-    raw_transcript = get_transcript(video_id)
-    if not raw_transcript:
-        return jsonify({"error": "Transcript not found"}), 404
+    try:
+        # Extract video ID
+        video_id = parse_qs(urlparse(video_url).query).get("v")
+        if not video_id:
+            return jsonify({"error": "Invalid YouTube URL"}), 400
+        video_id = video_id[0]
 
-    translated = translate_to_english(raw_transcript)
-    flashcards = generate_flashcards(translated)
+        # Fetch transcript
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi', 'en'])
 
-    return jsonify({
-        "message": "Flashcards generated",
-        "video_url": video_url,
-        "flashcards": flashcards
-    })
+        # Combine into one string
+        transcript_text = " ".join([t['text'] for t in transcript_list])
 
-@app.route('/healthz')
-def health_check():
-    return "OK", 200
+        # (In future) call OpenAI here
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+        return jsonify({
+            "message": "Transcript fetched successfully",
+            "video_url": video_url,
+            "transcript": transcript_text[:300] + "..."  # Trimmed for readability
+        })
+
+    except TranscriptsDisabled:
+        return jsonify({"error": "Transcripts are disabled for this video."}), 403
+    except NoTranscriptFound:
+        return jsonify({"error": "No transcript found for this video."}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
