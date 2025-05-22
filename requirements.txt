@@ -7,3 +7,5 @@ pytube
 whisper
 deep_translator
 ffmpeg-python
+youtube-transcript-api
+googletrans==4.0.0rc1
