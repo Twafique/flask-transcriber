@@ -19,7 +19,11 @@ def transcribe():
         video_id = video_id[0]
 
         # Fetch transcript in Hindi or English
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi', 'en'])
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi', 'en'])
+        except Exception:
+            # Try just English if Hindi+English fails
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
 
         # Combine transcript into one text block
         transcript_text = " ".join([t['text'] for t in transcript_list])
